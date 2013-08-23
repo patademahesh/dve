@@ -19,19 +19,19 @@ By default, dve will just use your local host for encoding, which isn't likely t
 improve performance. At a bare minimum, you should specify more than one host
 to encode with:
 
-    dve.sh -l host1,host2,host3 media/test.mp4
+    dve -l host1,host2,host3 media/test.mp4
 
 If you're using a statically linked ffmpeg binary (recommended), then you'll also
 want to specify the path to that binary:
 
-    dve.sh -e ~/bin/ffmpeg -l host1,host2,host3 media/test.mp4
+    dve -e ~/bin/ffmpeg -l host1,host2,host3 media/test.mp4
 
 After the encoding is completed and the chunks stitched back together, you
 should end up with an output file named "test.mp4_new.mkv" in your current working
 directory. You can adjust output naming, but note that the output container format
 will currently always be mkv:
 
-    dve.sh -s .encoded.mkv -e ~/bin/ffmpeg -l host1,host2,host3 media/test.mp4
+    dve -s .encoded.mkv -e ~/bin/ffmpeg -l host1,host2,host3 media/test.mp4
 
 ## Benchmarks
 
@@ -49,7 +49,7 @@ clip, 3:47 in length.
 
 ### dve with 3 hosts
 
-    $ time dve.sh -o "-c:v libx264 -crf 20.0 -preset medium -c:a libvorbis -aq 5" -l c1,c2,c3 test.mp4
+    $ time dve -o "-c:v libx264 -crf 20.0 -preset medium -c:a libvorbis -aq 5" -l c1,c2,c3 test.mp4
     Creating chunks to encode
 
     Computers / CPU cores / Max jobs to run
