@@ -1,0 +1,154 @@
+#!/bin/bash
+
+ENC="ffmpeg"
+OPTS="-c:v libx264 -crf 20.0 -preset veryslow -c:a libvorbis -aq 5"
+SUFFIX="_new.mkv"
+SERVERS="localhost"
+CHUNKS=100
+MINLEN=30
+OUTDIR="$HOME/.dve"
+VERBOSE="quiet"
+
+function usage() {
+    cat << EOF
+usage: $0 [options] filename
+
+This script breaks a video file up into chunks and encodes them in parallel via SSH on
+multiple hosts.
+
+OPTIONS:
+    -h  this help message.
+    -c  number of chunks to split input file into. (default=${CHUNKS})
+    -e  avconv binary to use. (default=${ENC})
+    -l  comma separated list of hosts to use to encode. (default=${SERVERS})
+    -m  min length of individual video chunks, in seconds. (default=${MINLEN})
+    -o  encoding options. (default=${OPTS})
+    -s  output file suffix. (default=${SUFFIX})
+    -v  verbose job output. (default=false)
+EOF
+}
+
+# check all required helper utils
+function checkpaths() {
+    for cmd in avprobe parallel grep sed wc; do
+        if ! CMD=`which $cmd`; then
+            echo "$cmd not found."
+            exit 1
+        fi
+    done
+    # check as absolute path first
+    if ! [ -x "$ENC" ]; then
+        # then check for something in $PATH
+        ENC="`which $ENC`"
+        if ! [ -x "$ENC" ]; then
+            echo "$ENC not executable."
+            exit 1
+        fi
+    fi
+}
+
+# returns total video length and optimal chunk length in seconds
+function chunksize() {
+    if ! DURATION=`avprobe "$1" 2>&1 | grep Duration | grep -P -o "[0-9]+:[0-9]+:[0-9]+\.[0-9]+" | sed -r 's/\..+//g'`; then
+        echo "Couldn't find duration of \"$1\" using avprobe."
+        exit 1
+    fi
+    declare -a DUR
+    DUR=(`echo ${DURATION} | sed -r 's/:/ /g'`)
+
+    # strip leading zeros if present because bash can't handle it.
+    H=`echo ${DUR[0]} | sed 's/^0*//'`
+    M=`echo ${DUR[1]} | sed 's/^0*//'`
+    S=`echo ${DUR[2]} | sed 's/^0*//'`
+    # add extra second to length to account for subsecond variances
+    SECONDS=$((H*3600+M*60+S+1))
+    LEN=$((SECONDS / CHUNKS))
+    if [ $LEN -lt $MINLEN ]; then
+        LEN=$MINLEN
+    fi
+    echo ${SECONDS} ${LEN}
+}
+
+checkpaths
+
+while getopts “hc:e:l:m:o:s:v” OPTION; do
+    case $OPTION in
+    h)
+    usage
+    exit 1
+    ;;
+    c)
+    CHUNKS="$OPTARG"
+    ;;
+    e)
+    ENC="$OPTARG"
+    ;;
+    l)
+    SERVERS="$OPTARG"
+    ;;
+    m)
+    MINLEN="$OPTARG"
+    ;;
+    o)
+    OPTS="$OPTARG"
+    ;;
+    s)
+    SUFFIX="$OPTARG"
+    ;;
+    v)
+    VERBOSE="info"
+    ;;
+    ?)
+    usage
+    exit
+    ;;
+    esac
+done
+shift $((OPTIND-1))
+
+if [ $# -lt 1 ]; then
+    usage
+    exit 1
+fi
+
+if ! mkdir -p ${OUTDIR}; then
+    echo "Couldn't create temp chunk output dir ${OUTDIR}."
+    exit 1
+fi
+
+declare -a TIMING
+TIMING=( `chunksize "$1"` )
+
+START=0
+CHUNKFILE="${OUTDIR}/chunkfile.txt"
+rm "${CHUNKFILE}" 2> /dev/null
+while [ $START -lt ${TIMING[0]} ]; do
+    printf "%06d\n" ${START} >> "${CHUNKFILE}"
+    START=$((START+TIMING[1]))
+done
+
+NUMSERVERS=`echo ${SERVERS} | sed -r 's/,/ /g' | wc -w`
+
+echo "Creating chunks to encode"
+cat "$CHUNKFILE" | parallel --gnu --eta -j 1 $ENC -y -v ${VERBOSE} -fflags +genpts -ss {} -i \"$1\" -t ${TIMING[1]} -c copy -f matroska ${OUTDIR}/chunk-{}.orig
+
+CWD=`pwd`
+cd "$OUTDIR"
+
+cp "${ENC}" ./ffmpeg
+echo "Running parallel encoding jobs"
+PAR_OPTS="--gnu -j 1 -S ${SERVERS} --eta --retries 2 --nice 10"
+PAR_OPTS="$PAR_OPTS --workdir ... --basefile ffmpeg --trc {.}.enc"
+ENC_OPTS="-y -v ${VERBOSE} -i {} ${OPTS} -f matroska {.}.enc"
+
+parallel ${PAR_OPTS} ${HOME}/ffmpeg ${ENC_OPTS} ::: chunk-*.orig
+echo "Combining chunks into final video file"
+echo "ffconcat version 1.0" > concat.txt
+for f in `ls chunk-*.enc | sort`; do
+    echo "file $f" >> concat.txt
+done
+${ENC} -y -v ${VERBOSE} -f concat -i concat.txt -f matroska -c copy "${CWD}"/"`basename \"$1\"`"${SUFFIX}
+
+echo "Cleaning up temporary working files"
+rm -f "${OUTDIR}"/*
+cd "$CWD"
