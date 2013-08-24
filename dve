@@ -1,13 +1,15 @@
 #!/bin/bash
 
 ENC="ffmpeg"
-OPTS="-c:v libx264 -crf 20.0 -preset veryslow -c:a libvorbis -aq 5"
+ENCPATH=""
+OPTS="-c:v libx264 -crf 20.0 -preset veryslow -c:a libvorbis -aq 5 -c:s copy"
 SUFFIX="_new.mkv"
 SERVERS="localhost"
 CHUNKS=100
 MINLEN=30
 OUTDIR="$HOME/.dve"
-VERBOSE="quiet"
+VERBOSE="error"
+COPYENC=true
 
 function usage() {
     cat << EOF
@@ -19,6 +21,7 @@ multiple hosts.
 OPTIONS:
     -h  this help message.
     -c  number of chunks to split input file into. (default=${CHUNKS})
+    -d  do not copy encoder, assume it already exists remotely.
     -e  avconv binary to use. (default=${ENC})
     -l  comma separated list of hosts to use to encode. (default=${SERVERS})
     -m  min length of individual video chunks, in seconds. (default=${MINLEN})
@@ -37,11 +40,13 @@ function checkpaths() {
         fi
     done
     # check as absolute path first
-    if ! [ -x "$ENC" ]; then
+    if [ -x "$ENC" ]; then
+        ENCPATH="$ENC"
+    else
         # then check for something in $PATH
-        ENC="`which $ENC`"
-        if ! [ -x "$ENC" ]; then
-            echo "$ENC not executable."
+        ENCPATH="`which $ENC`"
+        if ! [ -x "$ENCPATH" ]; then
+            echo "$ENC not found."
             exit 1
         fi
     fi
@@ -71,7 +76,7 @@ function chunksize() {
 
 checkpaths
 
-while getopts “hc:e:l:m:o:s:v” OPTION; do
+while getopts “hc:de:l:m:o:s:v” OPTION; do
     case $OPTION in
     h)
     usage
@@ -79,6 +84,9 @@ while getopts “hc:e:l:m:o:s:v” OPTION; do
     ;;
     c)
     CHUNKS="$OPTARG"
+    ;;
+    d)
+    COPYENC=false
     ;;
     e)
     ENC="$OPTARG"
@@ -96,7 +104,7 @@ while getopts “hc:e:l:m:o:s:v” OPTION; do
     SUFFIX="$OPTARG"
     ;;
     v)
-    VERBOSE="info"
+    VERBOSE="warning"
     ;;
     ?)
     usage
@@ -135,13 +143,22 @@ cat "$CHUNKFILE" | parallel --gnu --eta -j 1 $ENC -y -v ${VERBOSE} -fflags +genp
 CWD=`pwd`
 cd "$OUTDIR"
 
-cp "${ENC}" ./ffmpeg
 echo "Running parallel encoding jobs"
 PAR_OPTS="--gnu -j 1 -S ${SERVERS} --eta --retries 2 --nice 10"
-PAR_OPTS="$PAR_OPTS --workdir ... --basefile ffmpeg --trc {.}.enc"
+PAR_OPTS="$PAR_OPTS --workdir ... --trc {.}.enc"
+if $COPYENC; then
+    PAR_OPTS="$PAR_OPTS --basefile ffmpeg"
+fi
 ENC_OPTS="-y -v ${VERBOSE} -i {} ${OPTS} -f matroska {.}.enc"
 
-parallel ${PAR_OPTS} ${HOME}/ffmpeg ${ENC_OPTS} ::: chunk-*.orig
+if $COPYENC; then
+    cp "${ENCPATH}" ./ffmpeg
+    REMOTEENC='${HOME}/ffmpeg'
+else
+    REMOTEENC="$ENC"
+fi
+parallel ${PAR_OPTS} ${REMOTEENC} ${ENC_OPTS} ::: chunk-*.orig
+
 echo "Combining chunks into final video file"
 echo "ffconcat version 1.0" > concat.txt
 for f in `ls chunk-*.enc | sort`; do

@@ -33,6 +33,16 @@ will currently always be mkv:
 
     dve -s .encoded.mkv -e ~/bin/ffmpeg -l host1,host2,host3 media/test.mp4
 
+dve automatically copies the local ffmpeg to remote systems for encoding, but this
+won't work if you want to mix architectures / OSes. If you ensure
+there's a valid ffmpeg install in the $PATH on each remote system, you can
+disable copying over the local encoder:
+
+    dve -d -l win1,win2,lin1,lin2 media/test.mp4
+
+This allows you to mix Windows/cygwin and Linux hosts on the same
+encoding job.
+
 ## Benchmarks
 
 Hosts used for this benchmark were dual Xeon L5520 systems with 24GB of RAM,
@@ -41,44 +51,47 @@ clip, 3:47 in length.
 
 ### ffmpeg on a single host
 
-    $ time nice -n 10 ./ffmpeg -y -v error -stats -i test.mp4 -c:v libx264 -crf 20.0 -preset medium -c:a libvorbis -aq 5 -f matroska test.mkv
-    frame= 5459 fps=7.4 q=-1.0 Lsize=  530036kB time=00:03:47.43 bitrate=19091.2kbits/s    
-    real    12m17.177s
-    user    182m57.340s
-    sys     0m36.240s
+```bash
+$ time nice -n 10 ./ffmpeg -y -v error -stats -i test.mp4 -c:v libx264 -crf 20.0 -preset medium -c:a libvorbis -aq 5 -f matroska test.mkv
+frame= 5459 fps=7.4 q=-1.0 Lsize=  530036kB time=00:03:47.43 bitrate=19091.2kbits/s    
+real    12m17.177s
+user    182m57.340s
+sys     0m36.240s
+```
 
 ### dve with 3 hosts
 
-    $ time dve -o "-c:v libx264 -crf 20.0 -preset medium -c:a libvorbis -aq 5" -l c1,c2,c3 test.mp4
-    Creating chunks to encode
+```bash
+$ time dve -o "-c:v libx264 -crf 20.0 -preset medium -c:a libvorbis -aq 5" -l c1,c2,c3 test.mp4
+Creating chunks to encode
 
-    Computers / CPU cores / Max jobs to run
-    1:local / 2 / 1
+Computers / CPU cores / Max jobs to run
+1:local / 2 / 1
 
-    Computer:jobs running/jobs completed/%of started jobs/Average seconds to complete
-    ETA: 1s 1left 1.57avg  local:1/7/100%/1.6s
-    Running parallel encoding jobs
+Computer:jobs running/jobs completed/%of started jobs/Average seconds to complete
+ETA: 1s 1left 1.57avg  local:1/7/100%/1.6s
+Running parallel encoding jobs
 
-    Computers / CPU cores / Max jobs to run
-    1:c1 / 16 / 1
-    2:c2 / 16 / 1
-    3:c3 / 16 / 1
+Computers / CPU cores / Max jobs to run
+1:c1 / 16 / 1
+2:c2 / 16 / 1
+3:c3 / 16 / 1
 
-    Computer:jobs running/jobs completed/%of started jobs/Average seconds to complete
-    ETA: 380s 6left 64.00avg  c1:1/1/40%/132.0s  c2:1/0/20%/0.0s  c3:1/1/40%/132.0s
-    Computer:jobs running/jobs completed/%of started jobs
-    ETA: 90s 2left 45.33avg  1:1/2/37%/138.0s  2:0/2/25%/138.0s  3:1/2/37%/138.0s
-    Computer:jobs running/jobs completed/%of started jobs/Average seconds to complete
-    ETA: 42s 1left 42.14avg  c1:0/3/37%/99.7s  c2:0/2/25%/149.5s  c3:1/2/37%/149.5s
-    Computer:jobs running/jobs completed/%of started jobs
-    ETA: 50s 1left 50.29avg  1:0/3/37%/118.7s  2:0/2/25%/178.0s  3:1/2/37%/178.0s
-    Combining chunks into final video file
-    Cleaning up temporary working files
+Computer:jobs running/jobs completed/%of started jobs/Average seconds to complete
+ETA: 380s 6left 64.00avg  c1:1/1/40%/132.0s  c2:1/0/20%/0.0s  c3:1/1/40%/132.0s
+Computer:jobs running/jobs completed/%of started jobs
+ETA: 90s 2left 45.33avg  1:1/2/37%/138.0s  2:0/2/25%/138.0s  3:1/2/37%/138.0s
+Computer:jobs running/jobs completed/%of started jobs/Average seconds to complete
+ETA: 42s 1left 42.14avg  c1:0/3/37%/99.7s  c2:0/2/25%/149.5s  c3:1/2/37%/149.5s
+Computer:jobs running/jobs completed/%of started jobs
+ETA: 50s 1left 50.29avg  1:0/3/37%/118.7s  2:0/2/25%/178.0s  3:1/2/37%/178.0s
+Combining chunks into final video file
+Cleaning up temporary working files
 
-    real    6m17.075s
-    user    1m29.630s
-    sys     0m22.697s
-
+real    6m17.075s
+user    1m29.630s
+sys     0m22.697s
+```
 
 ### Summary
 
@@ -112,12 +125,52 @@ on the target system.
 It's recommended that you use the latest ffmpeg statically linked binaries (above),
 which will also improve your chances of transcoding new / strange video formats.
 
+### bash
+
+If you're using the statically linked ffmpeg binaries in ~/bin,
+you'll need to ensure bash adds ~/bin to your $PATH for non-interactive shells.
+Including the following at the top of your ~/.bashrc should be sufficient:
+
+```bash
+# User dependent .bashrc file
+
+# Set PATH so it includes user's private bin if it exists
+if [ -d "${HOME}/bin" ] ; then
+  PATH="${HOME}/bin:${PATH}"
+fi
+```
+
+### Windows
+
+dve can be run on Windows via [cygwin](http://www.cygwin.com/).
+
+To do so, you'll need to:
+
+- build GNU parallel manually from source (requires make).
+- install a static build of [ffmpeg for Windows](http://ffmpeg.zeranoe.com/builds/).
+- install (or symlink) above into your $PATH, usually ~/bin.
+
+You'll also need to do the following if you want to use the host to render with:
+
+- [configure sshd](http://www.noah.org/ssh/cygwin-sshd.html)
+- alter ~/.bashrc as mentioned above.
+
 ## Restrictions
 
 - currently only generates mkv containers on output.
 
 ## ⚠ Known Issues
 
+### chunk sizing
+
+Sometimes the last chunk to be split out will be too small to be properly encoded,
+and this will cause the whole encode to fail when the pieces are joined at the end
+of the job.
+
+Currently the only solution is to adjust the -m and -c options so that the final
+chunk of the file is reasonably large.
+
+### ffmpeg / libav
 Ubuntu ships the libav fork version ffmpeg wrapper instead of the actual ffmpeg
 release. This version is missing many necessary features, including the
 [concat demuxer](https://www.ffmpeg.org/faq.html#How-can-I-concatenate-video-files_003f)
