@@ -104,7 +104,7 @@ while getopts “hc:de:l:m:o:s:v” OPTION; do
     SUFFIX="$OPTARG"
     ;;
     v)
-    VERBOSE="warning"
+    VERBOSE="info"
     ;;
     ?)
     usage
