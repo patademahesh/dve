@@ -30,7 +30,7 @@ EOF
 
 # check all required helper utils
 function checkpaths() {
-    for cmd in avprobe parallel grep sed wc; do
+    for cmd in ffprobe parallel grep sed wc; do
         if ! CMD=`which $cmd`; then
             echo "$cmd not found."
             exit 1
@@ -49,7 +49,7 @@ function checkpaths() {
 
 # returns total video length and optimal chunk length in seconds
 function chunksize() {
-    if ! DURATION=`avprobe "$1" 2>&1 | grep Duration | grep -P -o "[0-9]+:[0-9]+:[0-9]+\.[0-9]+" | sed -r 's/\..+//g'`; then
+    if ! DURATION=`ffprobe "$1" 2>&1 | grep Duration | grep -P -o "[0-9]+:[0-9]+:[0-9]+\.[0-9]+" | sed -r 's/\..+//g'`; then
         echo "Couldn't find duration of \"$1\" using avprobe."
         exit 1
     fi
@@ -130,7 +130,7 @@ done
 NUMSERVERS=`echo ${SERVERS} | sed -r 's/,/ /g' | wc -w`
 
 echo "Creating chunks to encode"
-cat "$CHUNKFILE" | parallel --gnu --eta -j 1 $ENC -y -v ${VERBOSE} -fflags +genpts -ss {} -i \"$1\" -t ${TIMING[1]} -c copy -f matroska ${OUTDIR}/chunk-{}.orig
+cat "$CHUNKFILE" | parallel --gnu --eta -j 1 $ENC -y -v ${VERBOSE} -fflags +genpts -i \"$1\" -ss {} -t ${TIMING[1]} -c copy -f matroska ${OUTDIR}/chunk-{}.orig
 
 CWD=`pwd`
 cd "$OUTDIR"
